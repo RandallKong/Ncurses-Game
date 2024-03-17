@@ -25,8 +25,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static void           parse_arguments(int argc, char *argv[], char **address, char **port, char **msg);
-static void           handle_arguments(const char *binary_name, const char *address, const char *port_str, const char *message, in_port_t *port);
+static void           parse_arguments(int argc, char *argv[], char **address, char **port_str);
+static void           handle_arguments(const char *binary_name, const char *address, const char *port_str, in_port_t *port);
 static in_port_t      parse_in_port_t(const char *binary_name, const char *port_str);
 _Noreturn static void usage(const char *program_name, int exit_code, const char *message);
 static void           convert_address(const char *address, struct sockaddr_storage *addr, socklen_t *addr_len);
@@ -34,29 +34,108 @@ static int            socket_create(int domain, int type, int protocol);
 static void           get_address_to_server(struct sockaddr_storage *addr, in_port_t port);
 static void           socket_close(int sockfd);
 
-#define UNKNOWN_OPTION_MESSAGE_LEN 24
+static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len);
+static void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
+
+// #define UNKNOWN_OPTION_MESSAGE_LEN 24
+#define BUFFER_SIZE 1024
 #define BASE_TEN 10
 
 int main(int argc, char *argv[])
 {
     char                   *address;
     char                   *port_str;
-    char                   *message;
     in_port_t               port;
     int                     sockfd;
-    ssize_t                 bytes_sent;
     struct sockaddr_storage addr;
-    socklen_t               addr_len;
+    fd_set                  read_fds;
+
+    socklen_t addr_len = sizeof(addr);
 
     address  = NULL;
     port_str = NULL;
-    message  = NULL;
-    parse_arguments(argc, argv, &address, &port_str, &message);
-    handle_arguments(argv[0], address, port_str, message, &port);
+    parse_arguments(argc, argv, &address, &port_str);
+    handle_arguments(argv[0], address, port_str, &port);
     convert_address(address, &addr, &addr_len);
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     get_address_to_server(&addr, port);
-    bytes_sent = sendto(sockfd, message, strlen(message) + 1, 0, (struct sockaddr *)&addr, addr_len);
+
+    FD_ZERO(&read_fds);
+    FD_SET(sockfd, &read_fds);
+    FD_SET(STDIN_FILENO, &read_fds);
+
+    while(1)
+    {
+        fd_set tmp_fds = read_fds;
+
+        // Wait for activity on the socket or stdin
+        if(select(sockfd + 1, &tmp_fds, NULL, NULL, NULL) == -1)
+        {
+            perror("select");
+            break;
+        }
+
+        // Check for activity on the socket
+        if(FD_ISSET(sockfd, &tmp_fds))
+        {
+            handle_input(sockfd, (struct sockaddr *)&addr, addr_len);
+        }
+
+        // Check for activity on stdin
+        if(FD_ISSET(STDIN_FILENO, &tmp_fds))
+        {
+            read_from_keyboard(sockfd, (struct sockaddr *)&addr, addr_len);
+        }
+    }
+
+    socket_close(sockfd);
+
+    return EXIT_SUCCESS;
+}
+
+static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len)
+{
+    char    input_buffer[BUFFER_SIZE];
+    ssize_t bytes_received;
+
+    // Receive message from the server
+    bytes_received = recvfrom(sockfd, input_buffer, sizeof(input_buffer), 0, addr, &addr_len);
+
+    if(bytes_received == -1)
+    {
+        perror("recvfrom");
+        exit(EXIT_FAILURE);
+    }
+    else if(bytes_received == 0)
+    {
+        printf("Server closed connection\n");
+        exit(EXIT_SUCCESS);
+    }
+    else
+    {
+        input_buffer[bytes_received] = '\0';
+        printf("Received %zu bytes: \"%s\"\n", (size_t)bytes_received, input_buffer);
+    }
+}
+
+void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
+{
+    char    input_buffer[BUFFER_SIZE];
+    ssize_t bytes_sent;
+
+    // Read input from the keyboard
+    printf("Enter message: ");
+    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
+    {
+        // Error or EOF
+        exit(EXIT_FAILURE);
+    }
+
+    // Remove newline character from the input_buffer
+    input_buffer[strcspn(input_buffer, "\n")] = '\0';
+
+    // Send the message over the socket
+    bytes_sent = sendto(sockfd, input_buffer, strlen(input_buffer), 0, addr, addr_len);
 
     if(bytes_sent == -1)
     {
@@ -64,56 +143,22 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, message);
-    socket_close(sockfd);
-
-    return EXIT_SUCCESS;
+    printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, input_buffer);
 }
 
-static void parse_arguments(int argc, char *argv[], char **address, char **port, char **msg)
+static void parse_arguments(int argc, char *argv[], char **address, char **port_str)
 {
-    int opt;
-
-    opterr = 0;
-
-    while((opt = getopt(argc, argv, "h")) != -1)
+    // Parse command line arguments
+    if(argc < 3)
     {
-        switch(opt)
-        {
-            case 'h':
-            {
-                usage(argv[0], EXIT_SUCCESS, NULL);
-            }
-            case '?':
-            {
-                char message[UNKNOWN_OPTION_MESSAGE_LEN];
-
-                snprintf(message, sizeof(message), "Unknown option '-%c'.", optopt);
-                usage(argv[0], EXIT_FAILURE, message);
-            }
-            default:
-            {
-                usage(argv[0], EXIT_FAILURE, NULL);
-            }
-        }
+        fprintf(stderr, "Usage: %s <server_address> <port>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
-
-    if(optind + 1 >= argc)
-    {
-        usage(argv[0], EXIT_FAILURE, "Too few arguments.");
-    }
-
-    if(optind < argc - 3)
-    {
-        usage(argv[0], EXIT_FAILURE, "Too many arguments.");
-    }
-
-    *address = argv[optind];
-    *port    = argv[optind + 1];
-    *msg     = argv[optind + 2];
+    *address  = argv[1];
+    *port_str = argv[2];
 }
 
-static void handle_arguments(const char *binary_name, const char *address, const char *port_str, const char *message, in_port_t *port)
+static void handle_arguments(const char *binary_name, const char *address, const char *port_str, in_port_t *port)
 {
     if(address == NULL)
     {
@@ -123,11 +168,6 @@ static void handle_arguments(const char *binary_name, const char *address, const
     if(port_str == NULL)
     {
         usage(binary_name, EXIT_FAILURE, "The port is required.");
-    }
-
-    if(message == NULL)
-    {
-        usage(binary_name, EXIT_FAILURE, "The message is required.");
     }
 
     *port = parse_in_port_t(binary_name, port_str);

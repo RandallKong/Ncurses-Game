@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -32,10 +33,10 @@ _Noreturn static void usage(const char *program_name, int exit_code, const char 
 static void           convert_address(const char *address, struct sockaddr_storage *addr);
 static int            socket_create(int domain, int type, int protocol);
 static void           socket_bind(int sockfd, struct sockaddr_storage *addr, in_port_t port);
-static void           handle_packet(int client_sockfd, struct sockaddr_storage *client_addr, const char *buffer, size_t bytes);
+static void           handle_packet(int client_sockfd, const struct sockaddr_storage *client_addr, const char *buffer, size_t bytes);
 static void           socket_close(int sockfd);
 
-#define UNKNOWN_OPTION_MESSAGE_LEN 24
+// #define UNKNOWN_OPTION_MESSAGE_LEN 24
 #define LINE_LEN 1024
 #define BASE_TEN 10
 
@@ -46,7 +47,6 @@ int main(int argc, char *argv[])
     in_port_t               port;
     int                     sockfd;
     char                    buffer[LINE_LEN + 1];
-    ssize_t                 bytes_received;
     struct sockaddr_storage client_addr;
     socklen_t               client_addr_len;
     struct sockaddr_storage addr;
@@ -58,66 +58,38 @@ int main(int argc, char *argv[])
     convert_address(address, &addr);
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     socket_bind(sockfd, &addr, port);
-    client_addr_len = sizeof(client_addr);
-    bytes_received  = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *)&client_addr, &client_addr_len);
 
-    if(bytes_received == -1)
-    {
-        perror("recvfrom");
+    while(1)
+    {    // Loop indefinitely to receive messages continuously
+        ssize_t bytes_received;
+        client_addr_len = sizeof(client_addr);
+        bytes_received  = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+
+        if(bytes_received == -1)
+        {
+            perror("recvfrom");
+            break;    // Skip processing this message and continue to next iteration
+        }
+
+        buffer[(size_t)bytes_received] = '\0';
+        handle_packet(sockfd, &client_addr, buffer, (size_t)bytes_received);
     }
 
-    buffer[(size_t)bytes_received] = '\0';
-    handle_packet(sockfd, &client_addr, buffer, (size_t)bytes_received);
     socket_close(sockfd);
 
     return EXIT_SUCCESS;
 }
 
-static void parse_arguments(int argc, char *argv[], char **ip_address, char **port)
+void parse_arguments(int argc, char *argv[], char **address, char **port_str)
 {
-    int opt;
-
-    opterr = 0;
-
-    while((opt = getopt(argc, argv, "h")) != -1)
+    // Parse command line arguments
+    if(argc < 3)
     {
-        switch(opt)
-        {
-            case 'h':
-            {
-                usage(argv[0], EXIT_SUCCESS, NULL);
-            }
-            case '?':
-            {
-                char message[UNKNOWN_OPTION_MESSAGE_LEN];
-
-                snprintf(message, sizeof(message), "Unknown option '-%c'.", optopt);
-                usage(argv[0], EXIT_FAILURE, message);
-            }
-            default:
-            {
-                usage(argv[0], EXIT_FAILURE, NULL);
-            }
-        }
+        fprintf(stderr, "Usage: %s <server_address> <port>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
-
-    if(optind >= argc)
-    {
-        usage(argv[0], EXIT_FAILURE, "The ip address and port are required");
-    }
-
-    if(optind + 1 >= argc)
-    {
-        usage(argv[0], EXIT_FAILURE, "The port is required");
-    }
-
-    if(optind < argc - 2)
-    {
-        usage(argv[0], EXIT_FAILURE, "Error: Too many arguments.");
-    }
-
-    *ip_address = argv[optind];
-    *port       = argv[optind + 1];
+    *address  = argv[1];
+    *port_str = argv[2];
 }
 
 static void handle_arguments(const char *binary_name, const char *ip_address, const char *port_str, in_port_t *port)
@@ -265,9 +237,35 @@ static void socket_bind(int sockfd, struct sockaddr_storage *addr, in_port_t por
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void handle_packet(int client_sockfd, struct sockaddr_storage *client_addr, const char *buffer, size_t bytes)
+static void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const char *buffer, size_t bytes)
 {
-    printf("%d read %zu characters: \"%s\" from\n", client_sockfd, bytes, buffer);
+    char    client_host[NI_MAXHOST];    // Buffer to store client hostname
+    char    client_port[NI_MAXSERV];    // Buffer to store client port
+    ssize_t bytes_sent;
+
+    // Get the human-readable representation of client address and port
+    int ret = getnameinfo((const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage), client_host, NI_MAXHOST, client_port, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
+
+    if(ret != 0)
+    {
+        fprintf(stderr, "getnameinfo: %s\n", gai_strerror(ret));
+        return;
+    }
+
+    // Print client details
+    printf("Received %zu bytes from %s:%s\n", bytes, client_host, client_port);
+    printf("Message: %s\n", buffer);
+
+    // Send a response back to the client
+    bytes_sent = sendto(sockfd, "Response message", strlen("Response message"), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
+
+    if(bytes_sent == -1)
+    {
+        perror("sendto");
+        return;
+    }
+
+    printf("Sent %zd bytes back to %s:%s\n", bytes_sent, client_host, client_port);
 }
 
 #pragma GCC diagnostic pop
