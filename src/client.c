@@ -1,19 +1,3 @@
-/*
- * This code is licensed under the Attribution-NonCommercial-NoDerivatives 4.0 International license.
- *
- * Author: D'Arcy Smith (ds@programming101.dev)
- *
- * You are free to:
- *   - Share: Copy and redistribute the material in any medium or format.
- *   - Under the following terms:
- *       - Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
- *       - NonCommercial: You may not use the material for commercial purposes.
- *       - NoDerivatives: If you remix, transform, or build upon the material, you may not distribute the modified material.
- *
- * For more details, please refer to the full license text at:
- * https://creativecommons.org/licenses/by-nc-nd/4.0/
- */
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -34,6 +18,7 @@ static int            socket_create(int domain, int type, int protocol);
 static void           get_address_to_server(struct sockaddr_storage *addr, in_port_t port);
 static void           socket_close(int sockfd);
 
+static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len);
 static void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 
@@ -59,6 +44,8 @@ int main(int argc, char *argv[])
     convert_address(address, &addr, &addr_len);
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     get_address_to_server(&addr, port);
+
+    send_init_message(sockfd, (const struct sockaddr *)&addr, addr_len);
 
     FD_ZERO(&read_fds);
     FD_SET(sockfd, &read_fds);
@@ -93,6 +80,23 @@ int main(int argc, char *argv[])
     return EXIT_SUCCESS;
 }
 
+static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
+{
+    const char *init_message = "INIT";
+    ssize_t     bytes_sent;
+
+    // Send the "INIT" message over the socket
+    bytes_sent = sendto(sockfd, init_message, strlen(init_message), 0, addr, addr_len);
+
+    if(bytes_sent == -1)
+    {
+        perror("sendto");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Sent INIT message\n");
+}
+
 static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len)
 {
     char    input_buffer[BUFFER_SIZE];
@@ -124,7 +128,6 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
     ssize_t bytes_sent;
 
     // Read input from the keyboard
-    printf("Enter message: ");
     if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
     {
         // Error or EOF
@@ -149,7 +152,7 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
 static void parse_arguments(int argc, char *argv[], char **address, char **port_str)
 {
     // Parse command line arguments
-    if(argc < 3)
+    if(argc != 3)
     {
         fprintf(stderr, "Usage: %s <server_address> <port>\n", argv[0]);
         exit(EXIT_FAILURE);

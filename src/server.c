@@ -1,19 +1,3 @@
-/*
- * This code is licensed under the Attribution-NonCommercial-NoDerivatives 4.0 International license.
- *
- * Author: D'Arcy Smith (ds@programming101.dev)
- *
- * You are free to:
- *   - Share: Copy and redistribute the material in any medium or format.
- *   - Under the following terms:
- *       - Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
- *       - NonCommercial: You may not use the material for commercial purposes.
- *       - NoDerivatives: If you remix, transform, or build upon the material, you may not distribute the modified material.
- *
- * For more details, please refer to the full license text at:
- * https://creativecommons.org/licenses/by-nc-nd/4.0/
- */
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -25,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+// #include <stdbool.h>
 
 static void           parse_arguments(int argc, char *argv[], char **ip_address, char **port);
 static void           handle_arguments(const char *binary_name, const char *ip_address, const char *port_str, in_port_t *port);
@@ -36,9 +21,25 @@ static void           socket_bind(int sockfd, struct sockaddr_storage *addr, in_
 static void           handle_packet(int client_sockfd, const struct sockaddr_storage *client_addr, const char *buffer, size_t bytes);
 static void           socket_close(int sockfd);
 
+static void initialize_clients(void);
+static void broadcast(int sockfd, const char *message, int sender_index);
+
 // #define UNKNOWN_OPTION_MESSAGE_LEN 24
-#define LINE_LEN 1024
+#define BUFFER_SIZE 1024
 #define BASE_TEN 10
+#define MAX_USERNAME_LENGTH 20
+#define MAX_CLIENTS 32
+
+// Struct to store client information
+typedef struct
+{
+    struct sockaddr_storage addr;                             // Client address information
+    socklen_t               addr_len;                         // Length of the client address
+    char                    username[MAX_USERNAME_LENGTH];    // Username of the client
+} ClientInfo;
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+ClientInfo clients[MAX_CLIENTS];
 
 int main(int argc, char *argv[])
 {
@@ -46,7 +47,7 @@ int main(int argc, char *argv[])
     char                   *port_str;
     in_port_t               port;
     int                     sockfd;
-    char                    buffer[LINE_LEN + 1];
+    char                    buffer[BUFFER_SIZE + 1];
     struct sockaddr_storage client_addr;
     socklen_t               client_addr_len;
     struct sockaddr_storage addr;
@@ -58,6 +59,8 @@ int main(int argc, char *argv[])
     convert_address(address, &addr);
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     socket_bind(sockfd, &addr, port);
+
+    initialize_clients();
 
     while(1)
     {    // Loop indefinitely to receive messages continuously
@@ -78,6 +81,37 @@ int main(int argc, char *argv[])
     socket_close(sockfd);
 
     return EXIT_SUCCESS;
+}
+
+static void broadcast(int sockfd, const char *message, int sender_index)
+{
+    ssize_t bytes_sent;
+    //    struct sockaddr_storage *sender_addr = &clients[sender_index].addr;
+    //    socklen_t sender_addr_len = clients[sender_index].addr_len;
+
+    for(int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if(i != sender_index && clients[i].addr_len != 0)
+        {
+            bytes_sent = sendto(sockfd, message, strlen(message), 0, (const struct sockaddr *)&clients[i].addr, sizeof(struct sockaddr_storage));
+
+            if(bytes_sent == -1)
+            {
+                // remove them from array.
+                perror("sendto");
+                return;
+            }
+        }
+    }
+}
+
+static void initialize_clients(void)
+{
+    for(int i = 0; i < MAX_CLIENTS; i++)
+    {
+        clients[i].addr_len = 0;
+        sprintf(clients[i].username, "client%d", i + 1);
+    }
 }
 
 void parse_arguments(int argc, char *argv[], char **address, char **port_str)
@@ -237,11 +271,10 @@ static void socket_bind(int sockfd, struct sockaddr_storage *addr, in_port_t por
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const char *buffer, size_t bytes)
+void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const char *buffer, size_t bytes)
 {
-    char    client_host[NI_MAXHOST];    // Buffer to store client hostname
-    char    client_port[NI_MAXSERV];    // Buffer to store client port
-    ssize_t bytes_sent;
+    char client_host[NI_MAXHOST];    // Buffer to store client hostname
+    char client_port[NI_MAXSERV];    // Buffer to store client port
 
     // Get the human-readable representation of client address and port
     int ret = getnameinfo((const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage), client_host, NI_MAXHOST, client_port, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
@@ -253,19 +286,91 @@ static void handle_packet(int sockfd, const struct sockaddr_storage *client_addr
     }
 
     // Print client details
-    printf("Received %zu bytes from %s:%s\n", bytes, client_host, client_port);
     printf("Message: %s\n", buffer);
 
-    // Send a response back to the client
-    bytes_sent = sendto(sockfd, "Response message", strlen("Response message"), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
-
-    if(bytes_sent == -1)
+    // Check if the received message is "INIT"
+    if(strcmp(buffer, "INIT") == 0)
     {
-        perror("sendto");
-        return;
-    }
+        char    client_confirmation[BUFFER_SIZE];
+        ssize_t bytes_sent;
 
-    printf("Sent %zd bytes back to %s:%s\n", bytes_sent, client_host, client_port);
+        // Find the lowest open space in the array
+        int open_index = -1;
+        for(int i = 0; i < MAX_CLIENTS; i++)
+        {
+            if(clients[i].addr_len == 0)
+            {
+                open_index = i;
+                break;
+            }
+        }
+
+        // If there is an open space, add client info
+        if(open_index != -1)
+        {
+            clients[open_index].addr     = *client_addr;
+            clients[open_index].addr_len = sizeof(struct sockaddr_storage);
+            printf("Added client %s to slot %d\n", clients[open_index].username, open_index);
+        }
+        else
+        {
+            printf("No available space to add client\n");
+            return;
+        }
+
+        sprintf(client_confirmation, "Server: Successfully joined the game. You're %s", clients[open_index].username);
+
+        // Perform action when message is "INIT"
+        printf("Received 'INIT' message from %s:%s. Sending confirmation...\n", client_host, client_port);
+
+        // Send a confirmation message back to the client
+        bytes_sent = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
+
+        if(bytes_sent == -1)
+        {
+            perror("sendto");
+            return;
+        }
+
+        //        printf("Sent confirmation message to %s:%s\n", client_host, client_port);
+    }
+    else
+    {
+        ssize_t bytes_sent;
+        char    message_with_identifier[BUFFER_SIZE];
+        int     sender_index = -1;    // Initialize sender index to -1
+        // Find sender index
+        for(int i = 0; i < MAX_CLIENTS; i++)
+        {
+            if(clients[i].addr_len != 0 && memcmp(client_addr, &clients[i].addr, sizeof(struct sockaddr_storage)) == 0)
+            {
+                sender_index = i;
+                break;
+            }
+        }
+
+        if(sender_index == -1)
+        {
+            // TODO: add them to list.
+            fprintf(stderr, "Sender not found in client list\n");
+            return;
+        }
+
+        // Prepend the client's username to the message
+        snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, buffer);
+
+        // Broadcast the message to all clients except the sender
+        broadcast(sockfd, message_with_identifier, sender_index);
+
+        // Send a response back to the client
+        bytes_sent = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
+
+        if(bytes_sent == -1)
+        {
+            perror("sendto");
+            return;
+        }
+    }
 }
 
 #pragma GCC diagnostic pop
