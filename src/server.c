@@ -100,7 +100,7 @@ static void broadcast(int sockfd, const char *message, int sender_index)
         {
             ssize_t bytes_sent;
 
-            bytes_sent = sendto(sockfd, message_with_identifier, strlen(message_with_identifier), 0, (const struct sockaddr *)&clients[i].addr, sizeof(struct sockaddr_storage));
+            bytes_sent = sendto(sockfd, message_with_identifier, strlen(message_with_identifier), 0, (const struct sockaddr *)&clients[i].addr, sizeof(struct sockaddr));
 
             if(bytes_sent == -1)
             {
@@ -111,7 +111,7 @@ static void broadcast(int sockfd, const char *message, int sender_index)
         }
     }
 
-    confirmation_bytes = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)&clients[sender_index].addr, sizeof(struct sockaddr_storage));
+    confirmation_bytes = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)&clients[sender_index].addr, sizeof(struct sockaddr));
 
     if(confirmation_bytes == -1)
     {
@@ -148,7 +148,7 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
 
             sprintf(client_confirmation, "Server: Successfully joined the game. You're %s", clients[i].username);
 
-            bytes_sent = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
+            bytes_sent = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
 
             if(bytes_sent == -1)
             {
@@ -161,7 +161,7 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
     }
     // If no empty slot is found, send a message to the client and return -1 indicating failure
     no_room_message = "Server: No room available for new clients.";
-    error_bytes     = sendto(sockfd, no_room_message, strlen(no_room_message), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
+    error_bytes     = sendto(sockfd, no_room_message, strlen(no_room_message), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
     printf("No available space to add client\n");
     if(error_bytes == -1)
     {
@@ -361,6 +361,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
 {
     char client_host[NI_MAXHOST];    // Buffer to store client hostname
     char client_port[NI_MAXSERV];    // Buffer to store client port
+    int  sender_index;
 
     // Get the human-readable representation of client address and port
     int ret = getnameinfo((const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage), client_host, NI_MAXHOST, client_port, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
@@ -372,7 +373,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
     }
 
     // Print client details
-    //    printf("Message: %s\n", buffer);
+    // printf("Message: %s\n", buffer);
 
     // Check if the received message is "INIT"
     if(strcmp(buffer, "INIT") == 0)
@@ -389,61 +390,25 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
 
         return;
     }
+
+    // Check if the received message is "QUIT"
     if(strcmp(buffer, "QUIT") == 0)
     {
         remove_client(get_client_index(sockfd, client_addr));
         return;
     }
-    else
+
+    // Get the sender index
+    sender_index = get_client_index(sockfd, client_addr);
+    if(sender_index == -1)
     {
-        //        ssize_t bytes_sent;
-        //        char    message_with_identifier[BUFFER_SIZE];
-        int sender_index;    // Initialize sender index to -1
-        // Find sender index
-        //        for(int i = 0; i < MAX_CLIENTS; i++)
-        //        {
-        //            if(clients[i].addr_len != 0 && memcmp(client_addr, &clients[i].addr, sizeof(struct sockaddr_storage)) == 0)
-        //            {
-        //                sender_index = i;
-        //                break;
-        //            }
-        //        }
-
-        sender_index = get_client_index(sockfd, client_addr);
-        if(sender_index == -1)
-        {
-            return;
-        }
-
-        printf("Message: %s\n", buffer);
-
-        //        if(sender_index == -1)
-        //        {
-        //            // TODO: add them to list.
-        //            sender_index = add_client(sockfd, client_addr);
-        //
-        //            if(sender_index == -1)
-        //            {
-        //                printf("Server is full\n");
-        //                return;
-        //            }
-        //        }
-
-        // Prepend the client's username to the message
-        //        snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, buffer);
-
-        // Broadcast the message to all clients except the sender
-        broadcast(sockfd, buffer, sender_index);
-
-        // Send a response back to the client
-        //        bytes_sent = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr_storage));
-        //
-        //        if(bytes_sent == -1)
-        //        {
-        //            perror("sendto");
-        //            return;
-        //        }
+        return;
     }
+
+    printf("Message: %s\n", buffer);
+
+    // Broadcast the message to all clients except the sender
+    broadcast(sockfd, buffer, sender_index);
 }
 
 #pragma GCC diagnostic pop
