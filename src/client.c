@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,14 @@ static void           socket_close(int sockfd);
 static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len);
 static void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
+
+static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
+
+static void setup_signal_handler(void);
+static void sigint_handler(int signum);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static volatile sig_atomic_t exit_flag = 0;
 
 // #define UNKNOWN_OPTION_MESSAGE_LEN 24
 #define BUFFER_SIZE 1024
@@ -45,20 +54,22 @@ int main(int argc, char *argv[])
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     get_address_to_server(&addr, port);
 
+    setup_signal_handler();
+
     send_init_message(sockfd, (const struct sockaddr *)&addr, addr_len);
 
     FD_ZERO(&read_fds);
     FD_SET(sockfd, &read_fds);
     FD_SET(STDIN_FILENO, &read_fds);
 
-    while(1)
+    while(!exit_flag)
     {
         fd_set tmp_fds = read_fds;
 
         // Wait for activity on the socket or stdin
         if(select(sockfd + 1, &tmp_fds, NULL, NULL, NULL) == -1)
         {
-            perror("select");
+            //            perror("select");
             break;
         }
 
@@ -75,9 +86,47 @@ int main(int argc, char *argv[])
         }
     }
 
+    send_quit_message(sockfd, (struct sockaddr *)&addr, addr_len);
+    // SEND QUIT TO SERVER
+
     socket_close(sockfd);
 
     return EXIT_SUCCESS;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
+static void sigint_handler(int signum)
+{
+    exit_flag = 1;
+}
+
+#pragma GCC diagnostic pop
+
+static void setup_signal_handler(void)
+{
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
+#endif
+    sa.sa_handler = sigint_handler;
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if(sigaction(SIGINT, &sa, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
 }
 
 static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
@@ -147,6 +196,23 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
     }
 
     printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, input_buffer);
+}
+
+static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
+{
+    const char *quit_message = "QUIT";
+    ssize_t     bytes_sent;
+
+    // Send the "QUIT" message over the socket
+    bytes_sent = sendto(sockfd, quit_message, strlen(quit_message), 0, addr, addr_len);
+
+    if(bytes_sent == -1)
+    {
+        perror("sendto");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Sent QUIT message\n");
 }
 
 static void parse_arguments(int argc, char *argv[], char **address, char **port_str)

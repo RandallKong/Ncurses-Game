@@ -104,7 +104,7 @@ static void broadcast(int sockfd, const char *message, int sender_index)
 
             if(bytes_sent == -1)
             {
-                remove_client(i); //  TODO: THIS DOESENT WORK.
+                remove_client(i);    //  TODO: THIS DOESENT WORK.
                 perror("sendto");
                 return;
             }
@@ -138,7 +138,7 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
 
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
-        printf("%d: %d\n", i, clients[i].addr_len);
+        //        printf("%d: %d\n", i, clients[i].addr_len);
         if(clients[i].addr_len == 0)
         {
             ssize_t bytes_sent;
@@ -372,7 +372,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
     }
 
     // Print client details
-    printf("Message: %s\n", buffer);
+    //    printf("Message: %s\n", buffer);
 
     // Check if the received message is "INIT"
     if(strcmp(buffer, "INIT") == 0)
@@ -386,6 +386,13 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
         {
             return;
         }
+
+        return;
+    }
+    if(strcmp(buffer, "QUIT") == 0)
+    {
+        remove_client(get_client_index(sockfd, client_addr));
+        return;
     }
     else
     {
@@ -407,6 +414,8 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
         {
             return;
         }
+
+        printf("Message: %s\n", buffer);
 
         //        if(sender_index == -1)
         //        {
