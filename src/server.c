@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,12 @@ static int  add_client(int sockfd, const struct sockaddr_storage *client_addr);
 static int  get_client_index(int sockfd, const struct sockaddr_storage *client_addr);
 static void remove_client(int index);
 static void broadcast(int sockfd, const char *message, int sender_index);
+
+static void setup_signal_handler(void);
+static void sigint_handler(int signum);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static volatile sig_atomic_t exit_flag = 0;
 
 // #define UNKNOWN_OPTION_MESSAGE_LEN 24
 #define BUFFER_SIZE 1024
@@ -63,9 +70,11 @@ int main(int argc, char *argv[])
     sockfd = socket_create(addr.ss_family, SOCK_DGRAM, 0);
     socket_bind(sockfd, &addr, port);
 
+    setup_signal_handler();
+
     initialize_clients();
 
-    while(1)
+    while(!exit_flag)
     {    // Loop indefinitely to receive messages continuously
         ssize_t bytes_received;
         client_addr_len = sizeof(client_addr);
@@ -73,13 +82,15 @@ int main(int argc, char *argv[])
 
         if(bytes_received == -1)
         {
-            perror("recvfrom");
+            //            perror("recvfrom");
             break;    // Skip processing this message and continue to next iteration
         }
 
         buffer[(size_t)bytes_received] = '\0';
         handle_packet(sockfd, &client_addr, buffer, (size_t)bytes_received);
     }
+
+    broadcast(sockfd, "QUIT", -1);
 
     socket_close(sockfd);
 
@@ -88,11 +99,17 @@ int main(int argc, char *argv[])
 
 static void broadcast(int sockfd, const char *message, int sender_index)
 {
-    ssize_t confirmation_bytes;
-    char    message_with_identifier[BUFFER_SIZE];
+    char message_with_identifier[BUFFER_SIZE];
 
-    // Prepend the sender's username to the message
-    snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, message);
+    if(sender_index != -1)
+    {
+        // Prepend the sender's username to the message
+        snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, message);
+    }
+    else
+    {
+        snprintf(message_with_identifier, BUFFER_SIZE, "%s", message);
+    }
 
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -111,12 +128,17 @@ static void broadcast(int sockfd, const char *message, int sender_index)
         }
     }
 
-    confirmation_bytes = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)&clients[sender_index].addr, sizeof(struct sockaddr));
-
-    if(confirmation_bytes == -1)
+    if(sender_index != -1)
     {
-        perror("sendto");
-        return;
+        ssize_t confirmation_bytes;
+
+        confirmation_bytes = sendto(sockfd, "Server: message confirmation", strlen("Server: message confirmation"), 0, (const struct sockaddr *)&clients[sender_index].addr, sizeof(struct sockaddr));
+
+        if(confirmation_bytes == -1)
+        {
+            perror("sendto");
+            return;
+        }
     }
 }
 
@@ -198,6 +220,41 @@ static void remove_client(int index)
 
     // Reset the client's address length to 0
     clients[index].addr_len = 0;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
+static void sigint_handler(int signum)
+{
+    exit_flag = 1;
+}
+
+#pragma GCC diagnostic pop
+
+static void setup_signal_handler(void)
+{
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
+#endif
+    sa.sa_handler = sigint_handler;
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if(sigaction(SIGINT, &sa, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void parse_arguments(int argc, char *argv[], char **address, char **port_str)

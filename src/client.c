@@ -167,6 +167,13 @@ static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len)
     else
     {
         input_buffer[bytes_received] = '\0';
+
+        if(strcmp(input_buffer, "QUIT") == 0)
+        {
+            printf("Received QUIT message. Exiting...\n");
+            exit_flag = 1;
+            return;    // Exit the function immediately after setting the exit_flag
+        }
         printf("Received %zu bytes: \"%s\"\n", (size_t)bytes_received, input_buffer);
     }
 }
@@ -212,7 +219,7 @@ static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t
         exit(EXIT_FAILURE);
     }
 
-    printf("Sent QUIT message\n");
+    //    printf("Sent QUIT message\n");
 }
 
 static void parse_arguments(int argc, char *argv[], char **address, char **port_str)
