@@ -462,7 +462,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
         return;
     }
 
-    printf("Message: %s\n", buffer);
+    printf("message from %s: %s\n", clients[sender_index].username, buffer);
 
     // Broadcast the message to all clients except the sender
     broadcast(sockfd, buffer, sender_index);

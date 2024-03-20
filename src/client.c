@@ -232,19 +232,19 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
         if (seq[0] == '[') {
             switch(seq[1]) {
                 case 'A':
-                    sprintf(key_pressed, "Up Arrow Key pressed");
+                    sprintf(key_pressed, "Up");
                     printf("Up Arrow Key pressed\n");
                     break;
                 case 'B':
-                    sprintf(key_pressed, "Down Arrow Key pressed");
+                    sprintf(key_pressed, "Down");
                     printf("Down Arrow Key pressed\n");
                     break;
                 case 'C':
-                    sprintf(key_pressed, "Right Arrow Key pressed");
+                    sprintf(key_pressed, "Right");
                     printf("Right Arrow Key pressed\n");
                     break;
                 case 'D':
-                    sprintf(key_pressed, "Left Arrow Key pressed");
+                    sprintf(key_pressed, "Left");
                     printf("Left Arrow Key pressed\n");
                     break;
             }
