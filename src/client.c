@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <termios.h>
 
 static void           parse_arguments(int argc, char *argv[], char **address, char **port_str);
 static void           handle_arguments(const char *binary_name, const char *address, const char *port_str, in_port_t *port);
@@ -22,6 +23,7 @@ static void           socket_close(int sockfd);
 static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len);
 static void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
+void enableRawMode(void);
 
 static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 
@@ -55,6 +57,7 @@ int main(int argc, char *argv[])
     get_address_to_server(&addr, port);
 
     setup_signal_handler();
+    enableRawMode();
 
     send_init_message(sockfd, (const struct sockaddr *)&addr, addr_len);
 
@@ -178,31 +181,88 @@ static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len)
     }
 }
 
+// Function to set terminal to raw mode
+void enableRawMode(void)
+{
+    struct termios raw;
+    tcgetattr(STDIN_FILENO, &raw);
+    raw.c_lflag &= ~(ECHO | ICANON);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+//void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
+//{
+//    char    input_buffer[BUFFER_SIZE];
+//    ssize_t bytes_sent;
+//
+//    // Read input from the keyboard
+//    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
+//    {
+//        // Error or EOF
+//        exit(EXIT_FAILURE);
+//    }
+//
+//    // Remove newline character from the input_buffer
+//    input_buffer[strcspn(input_buffer, "\n")] = '\0';
+//
+//    // Send the message over the socket
+//    bytes_sent = sendto(sockfd, input_buffer, strlen(input_buffer), 0, addr, addr_len);
+//
+//    if(bytes_sent == -1)
+//    {
+//        perror("sendto");
+//        exit(EXIT_FAILURE);
+//    }
+//
+//    printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, input_buffer);
+//}
+
 void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
 {
-    char    input_buffer[BUFFER_SIZE];
+    char c;
     ssize_t bytes_sent;
+    char key_pressed[BUFFER_SIZE];
+    read(STDIN_FILENO, &c, 1);
 
-    // Read input from the keyboard
-    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
-    {
-        // Error or EOF
-        exit(EXIT_FAILURE);
+    if (c == '\x1b') { // Check if the first byte is the escape character
+        char seq[3];
+        if (read(STDIN_FILENO, &seq[0], 1) != 1) return;
+        if (read(STDIN_FILENO, &seq[1], 1) != 1) return;
+
+        if (seq[0] == '[') {
+            switch(seq[1]) {
+                case 'A':
+                    sprintf(key_pressed, "Up Arrow Key pressed");
+                    printf("Up Arrow Key pressed\n");
+                    break;
+                case 'B':
+                    sprintf(key_pressed, "Down Arrow Key pressed");
+                    printf("Down Arrow Key pressed\n");
+                    break;
+                case 'C':
+                    sprintf(key_pressed, "Right Arrow Key pressed");
+                    printf("Right Arrow Key pressed\n");
+                    break;
+                case 'D':
+                    sprintf(key_pressed, "Left Arrow Key pressed");
+                    printf("Left Arrow Key pressed\n");
+                    break;
+            }
+        }
     }
+    else {
+        sprintf(key_pressed, "Key pressed: %c", c);
+        printf("Key pressed: %c\n", c);
+    }
+    fflush(stdout);
 
-    // Remove newline character from the input_buffer
-    input_buffer[strcspn(input_buffer, "\n")] = '\0';
-
-    // Send the message over the socket
-    bytes_sent = sendto(sockfd, input_buffer, strlen(input_buffer), 0, addr, addr_len);
+    bytes_sent = sendto(sockfd, key_pressed, strlen(key_pressed), 0, addr, addr_len);
 
     if(bytes_sent == -1)
     {
         perror("sendto");
         exit(EXIT_FAILURE);
     }
-
-    printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, input_buffer);
 }
 
 static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
