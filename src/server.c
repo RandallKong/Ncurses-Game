@@ -10,7 +10,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-// #include <stdbool.h>
 
 static void           parse_arguments(int argc, char *argv[], char **ip_address, char **port);
 static void           handle_arguments(const char *binary_name, const char *ip_address, const char *port_str, in_port_t *port);
@@ -46,6 +45,8 @@ typedef struct
     struct sockaddr_storage addr;                             // Client address information
     socklen_t               addr_len;                         // Length of the client address
     char                    username[MAX_USERNAME_LENGTH];    // Username of the client
+    int                     x_coord;
+    int                     y_coord;
 } ClientInfo;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

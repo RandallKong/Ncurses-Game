@@ -3,13 +3,14 @@
 #include <inttypes.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #include <termios.h>
+#include <unistd.h>
 
 static void           parse_arguments(int argc, char *argv[], char **address, char **port_str);
 static void           handle_arguments(const char *binary_name, const char *address, const char *port_str, in_port_t *port);
@@ -23,12 +24,14 @@ static void           socket_close(int sockfd);
 static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len);
 static void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
-void enableRawMode(void);
+void        enableRawMode(void);
 
 static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 
 static void setup_signal_handler(void);
 static void sigint_handler(int signum);
+
+// static int redirect_output_to_file(const char *file_path);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -57,6 +60,12 @@ int main(int argc, char *argv[])
     get_address_to_server(&addr, port);
 
     setup_signal_handler();
+
+    //    if(redirect_output_to_file("output") != 0)
+    //    {
+    //        return 1;    // Exit if redirection fails
+    //    }
+
     enableRawMode();
 
     send_init_message(sockfd, (const struct sockaddr *)&addr, addr_len);
@@ -96,6 +105,59 @@ int main(int argc, char *argv[])
 
     return EXIT_SUCCESS;
 }
+
+// static int redirect_output_to_file(const char *file_path)
+//{
+//     FILE *file;
+//     int   client_id = 1;    // Starting client ID
+//     bool  file_exists;
+//
+//     char file_name[BUFFER_SIZE];
+//     do
+//     {
+//         // Construct file name with client ID
+//         snprintf(file_name, sizeof(file_name), "%s%d.txt", file_path, client_id);
+//
+//         // Check if file exists
+//         file = fopen(file_name, "re");
+//         if(file != NULL)
+//         {
+//             fclose(file);
+//             client_id++;    // Increment client ID if file exists
+//             file_exists = true;
+//         }
+//         else
+//         {
+//             file_exists = false;
+//         }
+//     } while(file_exists);
+//
+//     // Open the file for appending
+//     file = fopen(file_name, "we");
+//     if(file == NULL)
+//     {
+//         // Handle error if unable to create file
+//         perror("Error creating file");
+//         return 1;    // Return non-zero to indicate failure
+//     }
+//     fclose(file);
+//
+//     // Redirect stdout to file
+//     if(freopen(file_name, "w", stdout) == NULL)
+//     {
+//         perror("Error redirecting stdout");
+//         return 1;    // Return non-zero to indicate failure
+//     }
+//
+//     // Redirect stderr to file
+//     if(freopen(file_name, "a", stderr) == NULL)
+//     {
+//         perror("Error redirecting stderr");
+//         return 1;    // Return non-zero to indicate failure
+//     }
+//
+//     return 0;    // Return zero to indicate success
+// }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -186,51 +248,33 @@ void enableRawMode(void)
 {
     struct termios raw;
     tcgetattr(STDIN_FILENO, &raw);
-    raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-//void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
-//{
-//    char    input_buffer[BUFFER_SIZE];
-//    ssize_t bytes_sent;
-//
-//    // Read input from the keyboard
-//    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
-//    {
-//        // Error or EOF
-//        exit(EXIT_FAILURE);
-//    }
-//
-//    // Remove newline character from the input_buffer
-//    input_buffer[strcspn(input_buffer, "\n")] = '\0';
-//
-//    // Send the message over the socket
-//    bytes_sent = sendto(sockfd, input_buffer, strlen(input_buffer), 0, addr, addr_len);
-//
-//    if(bytes_sent == -1)
-//    {
-//        perror("sendto");
-//        exit(EXIT_FAILURE);
-//    }
-//
-//    printf("Sent %zu bytes: \"%s\"\n", (size_t)bytes_sent, input_buffer);
-//}
-
 void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_len)
 {
-    char c;
+    char    c;
     ssize_t bytes_sent;
-    char key_pressed[BUFFER_SIZE];
+    char    key_pressed[BUFFER_SIZE];
     read(STDIN_FILENO, &c, 1);
 
-    if (c == '\x1b') { // Check if the first byte is the escape character
+    if(c == '\x1b')
+    {    // Check if the first byte is the escape character
         char seq[3];
-        if (read(STDIN_FILENO, &seq[0], 1) != 1) return;
-        if (read(STDIN_FILENO, &seq[1], 1) != 1) return;
+        if(read(STDIN_FILENO, &seq[0], 1) != 1)
+        {
+            return;
+        }
+        if(read(STDIN_FILENO, &seq[1], 1) != 1)
+        {
+            return;
+        }
 
-        if (seq[0] == '[') {
-            switch(seq[1]) {
+        if(seq[0] == '[')
+        {
+            switch(seq[1])
+            {
                 case 'A':
                     sprintf(key_pressed, "Up");
                     printf("Up Arrow Key pressed\n");
@@ -247,10 +291,14 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
                     sprintf(key_pressed, "Left");
                     printf("Left Arrow Key pressed\n");
                     break;
+
+                default:
+                    printf("invalid key pressed");
             }
         }
     }
-    else {
+    else
+    {
         sprintf(key_pressed, "Key pressed: %c", c);
         printf("Key pressed: %c\n", c);
     }
