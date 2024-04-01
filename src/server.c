@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -30,6 +31,8 @@ static void broadcast(int sockfd, const char *message, int sender_index);
 static void setup_signal_handler(void);
 static void sigint_handler(int signum);
 
+void get_terminal_dimensions(void);
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
 
@@ -49,8 +52,17 @@ typedef struct
     int                     y_coord;
 } ClientInfo;
 
+typedef struct
+{
+    int height;
+    int width;
+} WindowDimensions;
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 ClientInfo clients[MAX_CLIENTS];
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+WindowDimensions window;
 
 int main(int argc, char *argv[])
 {
@@ -73,6 +85,8 @@ int main(int argc, char *argv[])
 
     setup_signal_handler();
 
+    get_terminal_dimensions();
+    printf("width: %d, height: %d\n", window.width, window.height);
     initialize_clients();
 
     while(!exit_flag)
@@ -96,6 +110,14 @@ int main(int argc, char *argv[])
     socket_close(sockfd);
 
     return EXIT_SUCCESS;
+}
+
+void get_terminal_dimensions(void)
+{
+    struct winsize ws;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+    window.height = ws.ws_row;
+    window.width  = ws.ws_col;
 }
 
 static void broadcast(int sockfd, const char *message, int sender_index)
@@ -158,6 +180,7 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
     const char *no_room_message;
     ssize_t     error_bytes;
     char        client_confirmation[BUFFER_SIZE];
+    char        screen_dimentions[BUFFER_SIZE];
 
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -165,15 +188,18 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
         if(clients[i].addr_len == 0)
         {
             ssize_t bytes_sent;
+            ssize_t dimention_bytes;
             // Found an empty slot, add the client
             clients[i].addr     = *client_addr;
             clients[i].addr_len = sizeof(struct sockaddr_storage);
 
             sprintf(client_confirmation, "Server: Successfully joined the game. You're %s", clients[i].username);
+            sprintf(screen_dimentions, "INIT:%d|%d", window.height, window.width);
 
-            bytes_sent = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
+            dimention_bytes = sendto(sockfd, screen_dimentions, strlen(screen_dimentions), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
+            bytes_sent      = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
 
-            if(bytes_sent == -1)
+            if(bytes_sent == -1 || dimention_bytes == -1)
             {
                 perror("sendto");
                 return -1;
