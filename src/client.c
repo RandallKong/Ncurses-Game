@@ -31,6 +31,8 @@ void        enableRawMode(void);
 
 static void send_quit_message(int sockfd, const struct sockaddr *addr, socklen_t addr_len);
 
+void handle_position_change(char *message);
+
 static void setup_signal_handler(void);
 static void sigint_handler(int signum);
 
@@ -224,16 +226,23 @@ static void send_init_message(int sockfd, const struct sockaddr *addr, socklen_t
     printf("Sent INIT message\n");
 }
 
-#include <stdlib.h>
-
 static void handle_init_message(const char *message)
 {
     char    *endptr;
     long int width;
     long int height;
 
+    // Extract username
+    char username[BUFFER_SIZE];
+    int  i;
+    for(i = INIT_MESSAGE_PREFIX_LEN; message[i] != '|' && message[i] != '\0'; ++i)
+    {
+        username[i - INIT_MESSAGE_PREFIX_LEN] = message[i];
+    }
+    username[i - INIT_MESSAGE_PREFIX_LEN] = '\0';    // Null-terminate the username
+
     // Parse the INIT message to extract width and height
-    height = strtol(message + INIT_MESSAGE_PREFIX_LEN, &endptr, BASE_TEN);
+    height = strtol(message + i + 1, &endptr, BASE_TEN);
     if(*endptr != '|')
     {
         fprintf(stderr, "Invalid INIT message format\n");
@@ -263,7 +272,7 @@ static void handle_init_message(const char *message)
     // Set the width and height here as needed
     window.height = (int)height;
     window.width  = (int)width;
-    printf("Received INIT message. Setting width: %d, height: %d\n", window.width, window.height);
+    printf("Im %s. Setting width: %d, height: %d\n", username, window.width, window.height);
     // Assuming you have variables to store width and height in the client code
     // Update those variables accordingly
 }
@@ -306,7 +315,34 @@ static void handle_input(int sockfd, struct sockaddr *addr, socklen_t addr_len)
         else
         {
             printf("Received %zu bytes: \"%s\"\n", (size_t)bytes_received, input_buffer);
+            handle_position_change(input_buffer);
         }
+    }
+}
+
+void handle_position_change(char *message)
+{
+    char *token;
+    char *rest;
+
+    // Tokenize the message using strtok_r and print client information
+    token = strtok_r(message, "()", &rest);
+    while(token != NULL)
+    {
+        char username[BUFFER_SIZE];
+        int  x = 0;
+        int  y = 0;
+
+        // Extract username, x-coordinate, and y-coordinate using sscanf with field width limits
+        // NOLINTNEXTLINE(cert-err34-c,-warnings-as-errors)
+        if(sscanf(token, "%99[^,], %d, %d", username, &x, &y) == 3)
+        {
+            printf("%s -> (%d, %d)\n", username, x, y);
+
+            // TODO: DO LOGIC HERE TO DISPLAY.
+        }
+
+        token = strtok_r(NULL, "()", &rest);    // Get next token
     }
 }
 

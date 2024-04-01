@@ -32,6 +32,9 @@ static void setup_signal_handler(void);
 static void sigint_handler(int signum);
 
 void get_terminal_dimensions(void);
+int  handle_position_change(const char *buffer, int sender_index);
+
+void serialize_all_client_positions(char *buffer);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -120,19 +123,37 @@ void get_terminal_dimensions(void)
     window.width  = ws.ws_col;
 }
 
+void serialize_all_client_positions(char *buffer)
+{
+    buffer[0] = '\0';    // Start with an empty string
+
+    // Iterate through all clients
+    for(int i = 0; i < MAX_CLIENTS; i++)
+    {
+        // Check if the client is active (has a non-zero address length)
+        if(clients[i].addr_len != 0)
+        {
+            // Concatenate the client's username, x-coordinate, and y-coordinate to the buffer
+            snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "(%s, %d, %d) ", clients[i].username, clients[i].x_coord, clients[i].y_coord);
+        }
+    }
+}
+
 static void broadcast(int sockfd, const char *message, int sender_index)
 {
     char message_with_identifier[BUFFER_SIZE];
 
-    if(sender_index != -1)
-    {
-        // Prepend the sender's username to the message
-        snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, message);
-    }
-    else
-    {
-        snprintf(message_with_identifier, BUFFER_SIZE, "%s", message);
-    }
+    //    if(sender_index != -1)
+    //    {
+    //        // Prepend the sender's username to the message
+    //        snprintf(message_with_identifier, BUFFER_SIZE, "%s: %s", clients[sender_index].username, message);
+    //    }
+    //    else
+    //    {
+    //        snprintf(message_with_identifier, BUFFER_SIZE, "%s", message);
+    //    }
+
+    snprintf(message_with_identifier, BUFFER_SIZE, "%s", message);
 
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -144,7 +165,7 @@ static void broadcast(int sockfd, const char *message, int sender_index)
 
             if(bytes_sent == -1)
             {
-                remove_client(i);    //  TODO: THIS DOESENT WORK.
+                remove_client(i);
                 perror("sendto");
                 return;
             }
@@ -194,7 +215,7 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr)
             clients[i].addr_len = sizeof(struct sockaddr_storage);
 
             sprintf(client_confirmation, "Server: Successfully joined the game. You're %s", clients[i].username);
-            sprintf(screen_dimentions, "INIT:%d|%d", window.height, window.width);
+            sprintf(screen_dimentions, "INIT:%s|%d|%d", clients[i].username, window.height, window.width);
 
             dimention_bytes = sendto(sockfd, screen_dimentions, strlen(screen_dimentions), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
             bytes_sent      = sendto(sockfd, client_confirmation, strlen(client_confirmation), 0, (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
@@ -438,6 +459,32 @@ static void socket_bind(int sockfd, struct sockaddr_storage *addr, in_port_t por
     printf("Bound to socket: %s:%u\n", addr_str, port);
 }
 
+int handle_position_change(const char *buffer, int sender_index)
+{
+    if(strcmp(buffer, "Up") == 0)
+    {
+        clients[sender_index].y_coord += 1;
+    }
+    else if(strcmp(buffer, "Down") == 0)
+    {
+        clients[sender_index].y_coord -= 1;
+    }
+    else if(strcmp(buffer, "Left") == 0)
+    {
+        clients[sender_index].x_coord -= 1;
+    }
+    else if(strcmp(buffer, "Right") == 0)
+    {
+        clients[sender_index].x_coord += 1;
+    }
+    else
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
@@ -445,6 +492,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
 {
     char client_host[NI_MAXHOST];    // Buffer to store client hostname
     char client_port[NI_MAXSERV];    // Buffer to store client port
+    char all_positions[BUFFER_SIZE];
     int  sender_index;
 
     // Get the human-readable representation of client address and port
@@ -455,9 +503,6 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
         fprintf(stderr, "getnameinfo: %s\n", gai_strerror(ret));
         return;
     }
-
-    // Print client details
-    // printf("Message: %s\n", buffer);
 
     // Check if the received message is "INIT"
     if(strcmp(buffer, "INIT") == 0)
@@ -489,10 +534,20 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr, const
         return;
     }
 
+    // Print the received message and sender's username
     printf("message from %s: %s\n", clients[sender_index].username, buffer);
 
+    // handle(buffer, sender_index)
+    if(handle_position_change(buffer, sender_index) == -1)
+    {
+        return;
+    }
+
+    // Serialize all client positions
+    serialize_all_client_positions(all_positions);
+
     // Broadcast the message to all clients except the sender
-    broadcast(sockfd, buffer, sender_index);
+    broadcast(sockfd, all_positions, sender_index);
 }
 
 #pragma GCC diagnostic pop
