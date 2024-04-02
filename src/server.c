@@ -157,7 +157,7 @@ static void broadcast(int sockfd, const char *message, int sender_index)
 
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
-        if(i != sender_index && clients[i].addr_len != 0)
+        if(clients[i].addr_len != 0)
         {
             ssize_t bytes_sent;
 

@@ -403,7 +403,8 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr, socklen_t addr_
     else
     {
         sprintf(key_pressed, "Key pressed: %c", c);
-        printf("Key pressed: %c\n", c);
+//        printf("Key pressed: %c\n", c);
+        return;
     }
     fflush(stdout);
 
