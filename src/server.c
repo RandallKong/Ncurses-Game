@@ -149,6 +149,7 @@ void serialize_all_client_positions(char *buffer) {
   }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion,-warnings-as-errors)
 static void broadcast(int sockfd, const char *message, int sender_index) {
   char message_with_identifier[BUFFER_SIZE];
 
@@ -174,7 +175,11 @@ static void broadcast(int sockfd, const char *message, int sender_index) {
           (const struct sockaddr *)&clients[i].addr, sizeof(struct sockaddr));
 
       if (bytes_sent == -1) {
+        char all_positions[BUFFER_SIZE];
         remove_client(i);
+        serialize_all_client_positions(all_positions);
+
+        broadcast(sockfd, all_positions, i);
         perror("sendto");
         return;
       }
@@ -210,17 +215,21 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr) {
   ssize_t error_bytes;
   char client_confirmation[BUFFER_SIZE];
   char screen_dimentions[BUFFER_SIZE];
+  char all_positions[BUFFER_SIZE];
 
   for (int i = 0; i < MAX_CLIENTS; i++) {
     //        printf("%d: %d\n", i, clients[i].addr_len);
     if (clients[i].addr_len == 0) {
       ssize_t bytes_sent;
       ssize_t dimention_bytes;
+      //      ssize_t position_bytes;
       // Found an empty slot, add the client
       clients[i].addr = *client_addr;
       clients[i].addr_len = sizeof(struct sockaddr_storage);
 
       set_init_position(i);
+
+      serialize_all_client_positions(all_positions);
 
       sprintf(client_confirmation,
               "Server: Successfully joined the game. You're %s",
@@ -234,6 +243,13 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr) {
       bytes_sent =
           sendto(sockfd, client_confirmation, strlen(client_confirmation), 0,
                  (const struct sockaddr *)client_addr, sizeof(struct sockaddr));
+
+      //      position_bytes =
+      //          sendto(sockfd, all_positions, strlen(all_positions), 0,
+      //                 (const struct sockaddr *)client_addr, sizeof(struct
+      //                 sockaddr));
+
+      broadcast(sockfd, all_positions, i);
 
       if (bytes_sent == -1 || dimention_bytes == -1) {
         perror("sendto");
@@ -273,6 +289,7 @@ static int get_client_index(int sockfd,
 }
 
 static void remove_client(int index) {
+
   if (index < 0 || index >= MAX_CLIENTS) {
     fprintf(stderr, "Invalid client index\n");
     return;
@@ -494,9 +511,9 @@ void set_init_position(int sender_index) {
 
   // Generate random x and y coordinates within the window dimensions
   clients[sender_index].x_coord =
-      (MIN_X + 1) + rand() % ((window.width - 1) - (MIN_X + 1) + 1);
+      MIN_X + 1 + rand() % (window.width - MIN_X - 1);
   clients[sender_index].y_coord =
-      (MIN_Y + 1) + rand() % ((window.height - 1) - (MIN_Y + 1) + 1);
+      MIN_Y + 1 + rand() % (window.height - MIN_Y - 1);
 }
 
 #pragma GCC diagnostic push
@@ -507,7 +524,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr,
   char client_host[NI_MAXHOST]; // Buffer to store client hostname
   char client_port[NI_MAXSERV]; // Buffer to store client port
   char all_positions[BUFFER_SIZE];
-  int sender_index;
+  int sender_index = 0;
 
   // Get the human-readable representation of client address and port
   int ret =
@@ -537,7 +554,13 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr,
 
   // Check if the received message is "QUIT"
   if (strcmp(buffer, "QUIT") == 0) {
+
+    char positions[BUFFER_SIZE];
     remove_client(get_client_index(sockfd, client_addr));
+
+    serialize_all_client_positions(positions);
+
+    broadcast(sockfd, positions, sender_index);
     return;
   }
 
