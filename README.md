@@ -1,4 +1,4 @@
-# COMP4981-assn3
+# NCURSES GAME
 
 **Running project**
 1) ./generate-cmakelists.sh
