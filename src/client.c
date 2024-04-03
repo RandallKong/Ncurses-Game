@@ -67,6 +67,9 @@ typedef struct {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 WindowDimensions window;
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+char name[BUFFER_SIZE];
+
 int main(int argc, char *argv[]) {
   char *address;
   char *port_str;
@@ -212,7 +215,8 @@ static void draw_boarder(int width, int height) {
 }
 
 void place_dot(int x, int y) {
-  mvprintw(y, x, ".");
+  //  mvprintw(y, x, ".");
+  mvaddch(y, x, 'o');
   refresh();
 }
 
@@ -310,7 +314,8 @@ static void handle_init_message(const char *message) {
   //  printf("Im %s. Setting width: %d, height: %d\n", username, window.width,
   //         window.height);
   // TODO: USERNAME
-  (void)username;
+  //  (void)username;
+  sprintf(name, "%s", username);
   draw_boarder(window.width, window.height);
   // Assuming you have variables to store width and height in the client code
   // Update those variables accordingly
@@ -358,6 +363,19 @@ void handle_position_change(char *message) {
 
   int x;
   int y;
+  //
+  //  clear();
+  //  refresh();
+  //
+  //  draw_boarder(window.width, window.height);
+
+  //  start_color();
+
+  for (int i = 1; i < window.width - 1; i++) {
+    for (int j = 1; j < window.height - 1; j++) {
+      mvprintw(j, i, " ");
+    }
+  }
 
   // Tokenize the message using strtok_r and print client information
   token = strtok_r(message, "()", &rest);
@@ -371,6 +389,16 @@ void handle_position_change(char *message) {
     if (sscanf(token, "%99[^,], %d, %d", username, &x, &y) == 3) {
       //      printf("%s -> (%d, %d)\n", username, x, y);
       // TODO: DO LOGIC HERE TO DISPLAY.
+      if (strcmp(name, username) == 0) {
+        attron(COLOR_PAIR(0)); // Default color for the background
+        attron(A_BOLD);        // Bold attribute for the dot
+        place_dot(x, y);
+        attroff(A_BOLD);
+      } else {
+        attron(COLOR_PAIR(0)); // Default color for the background
+        place_dot(x, y);
+      }
+      //      refresh();
     }
 
     token = strtok_r(NULL, "()", &rest); // Get next token

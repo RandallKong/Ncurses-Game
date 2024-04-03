@@ -10,7 +10,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
+// #include <stdint.h>
+#include <limits.h>
 
 static void parse_arguments(int argc, char *argv[], char **ip_address,
                             char **port);
@@ -43,6 +46,8 @@ int handle_position_change(const char *buffer, int sender_index);
 
 void serialize_all_client_positions(char *buffer);
 
+void set_init_position(int sender_index);
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
 
@@ -51,6 +56,8 @@ static volatile sig_atomic_t exit_flag = 0;
 #define BASE_TEN 10
 #define MAX_USERNAME_LENGTH 20
 #define MAX_CLIENTS 32
+#define MIN_X 0
+#define MIN_Y 0
 
 // Struct to store client information
 typedef struct {
@@ -212,6 +219,8 @@ static int add_client(int sockfd, const struct sockaddr_storage *client_addr) {
       // Found an empty slot, add the client
       clients[i].addr = *client_addr;
       clients[i].addr_len = sizeof(struct sockaddr_storage);
+
+      set_init_position(i);
 
       sprintf(client_confirmation,
               "Server: Successfully joined the game. You're %s",
@@ -442,19 +451,52 @@ static void socket_bind(int sockfd, struct sockaddr_storage *addr,
 }
 
 int handle_position_change(const char *buffer, int sender_index) {
+
+  int prev_x = clients[sender_index].x_coord;
+  int prev_y = clients[sender_index].y_coord;
+
   if (strcmp(buffer, "Up") == 0) {
-    clients[sender_index].y_coord += 1;
+    if (clients[sender_index].y_coord - 1 > MIN_Y) {
+      clients[sender_index].y_coord -= 1;
+    }
   } else if (strcmp(buffer, "Down") == 0) {
-    clients[sender_index].y_coord -= 1;
+    if (clients[sender_index].y_coord + 1 < window.height - 1) {
+      clients[sender_index].y_coord += 1;
+    }
   } else if (strcmp(buffer, "Left") == 0) {
-    clients[sender_index].x_coord -= 1;
+    if (clients[sender_index].x_coord - 1 > MIN_X) {
+      clients[sender_index].x_coord -= 1;
+    }
+
   } else if (strcmp(buffer, "Right") == 0) {
-    clients[sender_index].x_coord += 1;
+    if (clients[sender_index].x_coord + 1 < window.width - 1) {
+      clients[sender_index].x_coord += 1;
+    }
+  } else {
+    return -1;
+  }
+
+  if (prev_x != clients[sender_index].x_coord ||
+      prev_y != clients[sender_index].y_coord) {
+    printf("%s: (%d, %d) -> (%d, %d)\n", clients[sender_index].username, prev_x,
+           prev_y, clients[sender_index].x_coord,
+           clients[sender_index].y_coord);
   } else {
     return -1;
   }
 
   return 0;
+}
+
+void set_init_position(int sender_index) {
+  unsigned int seed = arc4random_uniform(UINT_MAX); // Generate a random seed
+  srand(seed); // Seed the random number generator
+
+  // Generate random x and y coordinates within the window dimensions
+  clients[sender_index].x_coord =
+      (MIN_X + 1) + rand() % ((window.width - 1) - (MIN_X + 1) + 1);
+  clients[sender_index].y_coord =
+      (MIN_Y + 1) + rand() % ((window.height - 1) - (MIN_Y + 1) + 1);
 }
 
 #pragma GCC diagnostic push
@@ -506,7 +548,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr,
   }
 
   // Print the received message and sender's username
-  printf("message from %s: %s\n", clients[sender_index].username, buffer);
+  //  printf("message from %s: %s\n", clients[sender_index].username, buffer);
 
   // handle(buffer, sender_index)
   if (handle_position_change(buffer, sender_index) == -1) {
@@ -517,6 +559,7 @@ void handle_packet(int sockfd, const struct sockaddr_storage *client_addr,
   serialize_all_client_positions(all_positions);
 
   // Broadcast the message to all clients except the sender
+  printf("BROADCASTING: %s\n", all_positions);
   broadcast(sockfd, all_positions, sender_index);
 }
 
