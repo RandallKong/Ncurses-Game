@@ -433,30 +433,35 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr,
       switch (seq[1]) {
       case 'A':
         sprintf(key_pressed, "Up");
-        //        printf("Up Arrow Key pressed\n");
+        // printf("Up Arrow Key pressed\n");
         break;
       case 'B':
         sprintf(key_pressed, "Down");
-        //        printf("Down Arrow Key pressed\n");
+        // printf("Down Arrow Key pressed\n");
         break;
       case 'C':
         sprintf(key_pressed, "Right");
-        //        printf("Right Arrow Key pressed\n");
+        // printf("Right Arrow Key pressed\n");
         break;
       case 'D':
         sprintf(key_pressed, "Left");
-        //        printf("Left Arrow Key pressed\n");
+        // printf("Left Arrow Key pressed\n");
         break;
 
       default:
-        printf("invalid key pressed");
+        printf("Invalid key pressed");
+        return;
       }
     }
   } else {
+    if (c == 'q') {
+      exit_flag = 1;
+      return;
+      //            sprintf(key_pressed, "Quit");
+    }
     sprintf(key_pressed, "Key pressed: %c", c);
-    //        printf("Key pressed: %c\n", c);
-    return;
   }
+
   fflush(stdout);
 
   bytes_sent =
@@ -467,6 +472,9 @@ void read_from_keyboard(int sockfd, const struct sockaddr *addr,
     exit(EXIT_FAILURE);
   }
 }
+//
+// send_quit_message(sockfd, addr, addr_len);
+// exit_flag = 1;
 
 static void send_quit_message(int sockfd, const struct sockaddr *addr,
                               socklen_t addr_len) {
