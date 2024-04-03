@@ -1,19 +1,5 @@
 # COMP4981-assn3
 
-**Requirements**
-1) concurrent handling multiple client connections.
-2) receives commands from client, executes and sends results to client.
-3) process forking and exec calls.
-4) stdin, stdout, stderr redirection.
-5) must work on macOS, Linux, FreeBSD
-6) works with GCC and Clang compilers
-
-**Bonus Features**
-- I/O Redirection using <, > and >>
-- Background tasks (&)
-- Piping (|)
-- Signal handling (Ctrl-C)
-
 **Running project**
 1) ./generate-cmakelists.sh
 2) ./change-compiler.sh -c [gcc or clang]
@@ -21,3 +7,9 @@
 
 _Server_
 1) ./server [ip addr] [port]
+
+
+_Client_
+1) ./client [ip addr] [port]
+2) arrow keys to move
+3) q to exit
