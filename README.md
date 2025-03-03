@@ -1,5 +1,7 @@
 # NCURSES GAME
 
+Demo: https://youtu.be/3cGbOuRf_Dk
+
 _Server_
 1) ./server [ip addr] [port]
 
